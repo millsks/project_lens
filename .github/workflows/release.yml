@@ -1,0 +1,287 @@
+name: Release
+
+on:
+  schedule:
+    - cron: "0 0 7,21 * *" # At midnight on the 7th and 21st day of every month
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 1.0.0)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+      force_recreate:
+        description: "Remove existing tag/release if it exists before creating new one"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: get_tag
+        run: |
+          git fetch --tags
+          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo no_tag_found)
+          echo "tag=" >> "$GITHUB_OUTPUT"
+          if [ "$latest_tag" != "no_tag_found" ]; then
+            echo "has_tags=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tags=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for changes since last tag
+        id: check_changes
+        run: |
+          if [ "${{ steps.get_tag.outputs.has_tags }}" == "false" ]; then
+            echo "No previous tags found - proceeding with release"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet ${{ steps.get_tag.outputs.tag }} HEAD; then
+            echo "No changes since last tag ${{ steps.get_tag.outputs.tag }}"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected since last tag ${{ steps.get_tag.outputs.tag }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip release (no changes)
+        if: steps.check_changes.outputs.changed == 'false'
+        run: |
+          echo "::notice::No changes detected since last release. Skipping automated release."
+          exit 0
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          pixi-version: v0.52.0
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "❌ Invalid version format. Use semantic versioning (e.g., 1.0.0, 1.0.0-beta.1)"
+            exit 1
+          fi
+          echo "✅ Version format is valid"
+
+      - name: Check if version already exists
+        run: |
+          if git tag | grep -q "^v${{ inputs.version }}$"; then
+            if [ "${{ inputs.force_recreate }}" = "true" ]; then
+              echo "⚠️  Version v${{ inputs.version }} already exists but force_recreate is enabled"
+              echo "Will remove existing tag and release..."
+            else
+              echo "❌ Version v${{ inputs.version }} already exists"
+              echo "Use 'force_recreate' option to remove and recreate it"
+              exit 1
+            fi
+          else
+            echo "✅ Version is new"
+          fi
+
+      - name: Remove existing tag and release (if force_recreate enabled)
+        if: inputs.force_recreate == true
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          VERSION="v${{ inputs.version }}"
+
+          # Check if tag exists
+          if git tag | grep -q "^${VERSION}$"; then
+            echo "🗑️ Removing existing tag: ${VERSION}"
+
+            # Delete remote tag
+            git push origin --delete "${VERSION}" || echo "Remote tag doesn't exist or already deleted"
+
+            # Delete local tag
+            git tag -d "${VERSION}" || echo "Local tag doesn't exist or already deleted"
+
+            echo "✅ Tag ${VERSION} removed"
+          else
+            echo "ℹ️  Tag ${VERSION} doesn't exist, nothing to remove"
+          fi
+
+          # Check if GitHub release exists and delete it
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "🗑️ Removing existing GitHub release: ${VERSION}"
+            gh release delete "${VERSION}" --yes
+            echo "✅ Release ${VERSION} removed"
+          else
+            echo "ℹ️  Release ${VERSION} doesn't exist, nothing to remove"
+          fi
+
+      - name: Run quality checks
+        run: |
+          pixi run -e lint lint
+          pixi run -e lint type-check
+          pixi run -e lint security-check
+
+      - name: Run tests with coverage
+        run: pixi run -e test test-cov
+
+      - name: Create temporary tag for changelog generation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Create temporary tag for git-cliff to see
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+
+      - name: Update CHANGELOG.md with git-cliff
+        run: |
+          # Generate changelog with the tag that now exists
+          pixi run -e dev git-cliff --output CHANGELOG.md
+
+          echo "✅ Updated CHANGELOG.md with version v${{ inputs.version }}"
+
+      - name: Commit changelog and recreate tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Remove the temporary tag
+          git tag -d "v${{ inputs.version }}"
+          # Add and commit the updated changelog
+          git add CHANGELOG.md
+          git commit -m "Release v${{ inputs.version }}"
+          # Recreate the tag pointing to the commit with the changelog
+          git tag -a "v${{ inputs.version }}" -m "Release v${{ inputs.version }}"
+          git push origin main --tags
+
+      - name: Build package
+        run: pixi run -e dev build
+
+      - name: Check package
+        run: |
+          pixi run -e dev twine check dist/*
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Extract changelog content for this version
+          VERSION="${{ inputs.version }}"
+
+          # Check if CHANGELOG.md exists and has content for this version
+          if [ -f "CHANGELOG.md" ]; then
+            # Extract section for this version from CHANGELOG.md
+            CHANGELOG_SECTION=$(awk "/^## \\[${VERSION}\\]/{flag=1; next} /^## \\[/{flag=0} flag" CHANGELOG.md)
+
+            if [ -n "$CHANGELOG_SECTION" ]; then
+              # Use changelog content
+              cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          ## [${VERSION}] - $(date +%Y-%m-%d)
+
+          ${CHANGELOG_SECTION}
+
+          ---
+
+          ## Installation
+
+          \`\`\`bash
+          pip install lens-api==${{ inputs.version }}
+          \`\`\`
+
+          ## Verification
+
+          \`\`\`bash
+          python -c "import lens_api; print(lens_api.__version__)"
+          \`\`\`
+
+          📝 **Full changelog**: [CHANGELOG.md](https://github.com/millsks/project-lens/blob/main/CHANGELOG.md)
+          RELEASE_NOTES
+          EOF
+            else
+              echo "⚠️ No changelog entry found for version ${VERSION}, using fallback"
+              # Fallback to generic notes
+              cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          Release v${{ inputs.version }}
+
+          ## Changes in this release
+
+          ⚠️ **No specific changelog entry found for this version.**
+
+          Please check the [full changelog](https://github.com/millsks/project-lens/blob/main/CHANGELOG.md) for details.
+
+          ### Package Information
+          - Version: ${{ inputs.version }}
+          - Build date: $(date)
+          - Commit: ${{ github.sha }}
+
+          ## Installation
+
+          \`\`\`bash
+          pip install lens-api==${{ inputs.version }}
+          \`\`\`
+
+          ## Verification
+
+          \`\`\`bash
+          python -c "import lens_api; print(lens_api.__version__)"
+          \`\`\`
+          RELEASE_NOTES
+          EOF
+            fi
+          else
+            echo "⚠️ CHANGELOG.md not found, using fallback"
+            # Fallback when no CHANGELOG.md exists
+            cat << EOF >> "$GITHUB_OUTPUT"
+          notes<<RELEASE_NOTES
+          Release v${{ inputs.version }}
+
+          ### Package Information
+          - Version: ${{ inputs.version }}
+          - Build date: $(date)
+          - Commit: ${{ github.sha }}
+
+          ## Installation
+
+          \`\`\`bash
+          pip install lens-api==${{ inputs.version }}
+          \`\`\`
+          RELEASE_NOTES
+          EOF
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: Release v${{ github.event.inputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease }}
+          files: dist/*
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Verify publish workflow trigger
+        run: |
+          echo "✅ Release created: ${{ steps.create_release.outputs.url }}"
+          echo "🔄 The publish workflow should trigger automatically when the release is published"
+          echo "📋 Check the Actions tab for the 'Publish to PyPI' workflow"
+
+          # Verify the publish workflow file exists
+          if [ -f ".github/workflows/publish.yml" ]; then
+            echo "✅ Publish workflow file exists"
+          else
+            echo "❌ Publish workflow file not found!"
+          fi

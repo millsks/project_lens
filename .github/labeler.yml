@@ -1,0 +1,54 @@
+# Configuration for automatic labeling based on file changes
+# See https://github.com/actions/labeler
+
+# Source code changes
+area/core:
+  - changed-files:
+      - any-glob-to-any-file: packages/lens-core/**/*.py
+
+area/api:
+  - changed-files:
+      - any-glob-to-any-file: packages/lens-api/**/*.py
+
+# Test changes
+area/tests:
+  - changed-files:
+      - any-glob-to-any-file: packages/**/tests/**
+
+# Documentation changes
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file: "*.md"
+      - any-glob-to-any-file: docs/**
+      - any-glob-to-any-file: .github/ISSUE_TEMPLATE/**
+      - any-glob-to-any-file: .github/pull_request_template.md
+      - any-glob-to-any-file: .github/copilot-instructions.md
+
+# Configuration changes
+area/config:
+  - changed-files:
+      - any-glob-to-any-file: pyproject.toml
+      - any-glob-to-any-file: .pre-commit-config.yaml
+      - any-glob-to-any-file: .gitignore
+      - any-glob-to-any-file: pixi.lock
+
+# CI/CD changes
+area/ci:
+  - changed-files:
+      - any-glob-to-any-file: .github/workflows/**
+      - any-glob-to-any-file: .github/dependabot.yml
+
+# Dependencies
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: pyproject.toml
+      - any-glob-to-any-file: pixi.lock
+      - any-glob-to-any-file: .pre-commit-config.yaml
+
+# Security related
+security:
+  - changed-files:
+      - any-glob-to-any-file: SECURITY.md
+      - any-glob-to-any-file: .github/ISSUE_TEMPLATE/security_report.yml
+      - any-glob-to-any-file: bandit-report.json
+      - any-glob-to-any-file: safety-report.json

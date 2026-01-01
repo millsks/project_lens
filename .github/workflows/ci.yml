@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0  # Needed for hatch-vcs to get git tags
+
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.0
+      with:
+        pixi-version: latest
+        cache: true
+
+    - name: Run tests
+      run: |
+        pixi run -e test test-cov
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0  # Needed for hatch-vcs to get git tags
+
+    - name: Set up pixi
+      uses: prefix-dev/setup-pixi@v0.9.0
+      with:
+        pixi-version: latest
+        cache: true
+
+    - name: Lint with ruff
+      run: |
+        pixi run -e lint lint
+
+    - name: Type check with mypy
+      run: |
+        pixi run -e lint type-check

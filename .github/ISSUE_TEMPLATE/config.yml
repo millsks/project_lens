@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report Security Vulnerability
+    url: https://github.com/millsks/project-lens/security/advisories/new
+    about: Report security vulnerabilities privately through GitHub Security Advisories - never create public issues for security problems
+  - name: �💬 GitHub Discussions
+    url: https://github.com/millsks/project-lens/discussions
+    about: Ask questions, share ideas, and discuss with the community
+  - name: 📚 Documentation
+    url: https://github.com/millsks/project-lens#readme
+    about: Check the README for usage examples and configuration options
+  - name: 🛠️ Contributing Guide
+    url: https://github.com/millsks/project-lens/blob/main/CONTRIBUTING.md
+    about: Learn how to contribute to the project
+  - name: 🔐 Security Policy
+    url: https://github.com/millsks/project-lens/blob/main/SECURITY.md
+    about: Review our security policy and responsible disclosure guidelines
