@@ -10,6 +10,20 @@ It sits on top of your existing **data catalog** and **lineage platform** and pr
 
 > LENS is currently in early development and not yet production-ready.
 
+## Repository Structure
+
+This is a **mono-repo** containing backend and frontend components:
+
+- **`backend/lens-io/`** - Unified Python package
+  - Install: `pip install lens`
+  - Library usage: `from lens.lineage import LineageRepository`
+  - API service: `uvicorn lens.api.main:app`
+  - Contains core functionality (models, business logic, database) and API service
+
+- **`frontend/`** (planned) - Next.js React application
+
+The package uses dynamic versioning with git tags (e.g., `v1.0.0`).
+
 ### Features (Planned)
 
 - **Lineage Explainer**
@@ -73,10 +87,12 @@ Documentation and code are still being organized. At a high level, the project w
 Planned steps (subject to change):
 
 1. Clone the repository:
+
    ```bash
-   git clone https://github.com/your-org/lens.git
-   cd lens
+   git clone https://github.com/millsks/project-lens.git
+   cd project-lens
    ```
+
 2. Set up a virtual environment / dependencies.
 3. Configure a simple metadata source (e.g., local JSON lineage sample).
 4. Start the LENS service in local/dev mode.
