@@ -1,0 +1,133 @@
+[workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "osx-64", "win-64"]
+
+# Note: pixi-build preview feature is available but has limitations
+# with Python build backends. For now, use hatch for building Python packages.
+# preview = ["pixi-build"]
+
+[dependencies]
+python = "3.12.*"
+fastapi = ">=0.115.0"
+pydantic = ">=2.0.0,<3.0.0"
+uvicorn = ">=0.32.0"
+uvicorn-standard = ">=0.32.0"
+sqlalchemy = ">=2.0.0"
+psycopg2 = ">=2.9.0"
+alembic = ">=1.13.0"
+celery = ">=5.4.0"
+flower = ">=2.0.0"
+redis-py = ">=5.0.0"
+
+[pypi-dependencies]
+lens-io = { path = "backend/lens-io", editable = true }
+
+# Development feature
+[feature.dev.dependencies]
+pytest = "*"
+pytest-cov = "*"
+ruff = "*"
+mypy = "*"
+pre-commit = "*"
+twine = "*"
+safety = "*"
+bandit = "*"
+git-cliff = "*"
+git = "*"
+act = "*"
+
+[feature.dev.pypi-dependencies]
+build = "*"
+hatchling = "*"
+hatch-vcs = "*"
+pyright = ">=1.1.0"
+pytest-asyncio = ">=0.24.0"
+
+# Test feature
+[feature.test.dependencies]
+pytest = "*"
+pytest-cov = "*"
+
+# Lint feature
+[feature.lint.dependencies]
+ruff = "*"
+mypy = "*"
+bandit = "*"
+safety = ">=2.3.5,<3.0"
+marshmallow = ">=3.0,<4.0"
+typing_extensions = "*"
+
+[feature.lint.pypi-dependencies]
+pyright = ">=1.1.0"
+
+# Testing tasks
+[feature.test.tasks]
+test = "pytest backend/"
+test-cov = "pytest --cov=lens --cov-report=term-missing --cov-report=html --cov-report=xml backend/"
+test-verbose = "pytest -v backend/"
+
+# Linting tasks
+[feature.lint.tasks]
+lint = "ruff check backend/"
+lint-fix = "ruff check --fix backend/"
+format = "ruff check --fix --exit-non-zero-on-fix backend/ && ruff format backend/"
+format-check = "ruff format --check backend/"
+typecheck = "pyright"
+security-check = "bandit -r backend/ -c backend/lens-io/pyproject.toml && safety check --json"
+check = { depends-on = ["lint", "typecheck"] }
+check-all = { depends-on = ["lint", "typecheck", "security-check"] }
+
+[feature.dev.tasks]
+# Run the application with reload enabled for development purposes only.
+dev = "uvicorn lens.api.main:app --reload"
+
+# Build tasks
+clean = "python -c 'import shutil, pathlib; [shutil.rmtree(p, ignore_errors=True) for p in [pathlib.Path(\"build\"), pathlib.Path(\"dist\")] + list(pathlib.Path(\".\").glob(\"*.egg-info\")) + list(pathlib.Path(\"backend\").glob(\"**/build\")) + list(pathlib.Path(\"backend\").glob(\"**/dist\")) + list(pathlib.Path(\"backend\").glob(\"**/*.egg-info\")) + list(pathlib.Path(\".\").glob(\"**/__pycache__\")) + [pathlib.Path(\".pytest_cache\"), pathlib.Path(\".coverage\"), pathlib.Path(\"htmlcov\"), pathlib.Path(\"coverage.xml\")]]'"
+build = "cd backend/lens-io && python -m build && cd ../.."
+publish = "twine upload backend/lens-io/dist/*"
+publish-test = "twine upload --repository testpypi backend/lens-io/dist/*"
+
+# Changelog tasks
+changelog = "git-cliff --output CHANGELOG.md"
+changelog-unreleased = "git-cliff --unreleased --tag unreleased --output -"
+changelog-latest = "git-cliff --latest --output -"
+release-preview = "git-cliff --bump --unreleased --output -"
+
+# Pre-commit tasks
+pre-commit-install = "pre-commit install && pre-commit install --hook-type commit-msg"
+pre-commit-run = "pre-commit run --all-files"
+
+# GitHub Actions local testing with act
+act-setup = "echo 'Updating .actrc and .secrets files for act configuration...' && touch .actrc .secrets && grep -qxF -- '--container-architecture linux/amd64' .actrc || echo '--container-architecture linux/amd64' >> .actrc && grep -qxF -- '--secret-file .secrets' .actrc || echo '--secret-file .secrets' >> .actrc && grep -qxF -- '-P ubuntu-latest=catthehacker/ubuntu:act-latest' .actrc || echo '-P ubuntu-latest=catthehacker/ubuntu:act-latest' >> .actrc && grep -qxF 'GITHUB_TOKEN=dummy' .secrets || echo 'GITHUB_TOKEN=dummy' >> .secrets && grep -qxF 'RELEASE_PAT=dummy' .secrets || echo 'RELEASE_PAT=dummy' >> .secrets && grep -qxF 'TEST_PYPI_API_TOKEN=dummy' .secrets || echo 'TEST_PYPI_API_TOKEN=dummy' >> .secrets && grep -qxF 'PYPI_API_TOKEN=dummy' .secrets || echo 'PYPI_API_TOKEN=dummy' >> .secrets && echo '✅ Act setup complete! Edit .secrets with real tokens if needed.'"
+act = "act"
+act-list = "act -l"
+act-dryrun = "act --dryrun"
+act-ci = "act push -W .github/workflows/ci.yml"
+act-pr = "act pull_request -W .github/workflows/ci.yml"
+act-release = "act workflow_dispatch -W .github/workflows/release.yml --input version=0.99.0-test --input prerelease=true"
+act-publish = "act release -W .github/workflows/publish.yml"
+act-maintenance = "act schedule -W .github/workflows/maintenance.yml"
+act-quality-monitoring = "act schedule -W .github/workflows/quality-monitoring.yml"
+act-sonarqube = "act push -W .github/workflows/sonarqube.yml"
+act-stale = "act schedule -W .github/workflows/stale.yml"
+
+# Combined tasks
+ci = { depends-on = ["check-all", "test-cov", "build"] }
+
+# Development setup
+dev-setup = { depends-on = ["pre-commit-install"] }
+
+# Docker Compose tasks
+docker-up = "docker compose up -d"
+docker-down = "docker compose down"
+docker-logs = "docker compose logs -f"
+docker-ps = "docker compose ps"
+docker-restart = "docker compose restart"
+docker-clean = "docker compose down -v"
+
+# Environment definitions
+[environments]
+default = ["dev"]
+test = ["test"]
+lint = ["lint"]
+dev = ["dev", "test", "lint"]
